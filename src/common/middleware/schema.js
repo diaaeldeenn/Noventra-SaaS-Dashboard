@@ -1,7 +1,7 @@
 import * as z from "zod";
 
 export const schema = (schema) => {
-  return async (req, res, next) => {
+  return (req, res, next) => {
     const result = schema.safeParse({
       body: req.body,
       params: req.params,
@@ -22,9 +22,13 @@ export const schema = (schema) => {
       );
     }
 
-    req.body = result.data.body;
-    req.params = result.data.params || {};
-    req.query = result.data.query || {};
+    if (result.data.body) {
+      req.body = result.data.body;
+    }
+
+    if (result.data.params) {
+      req.params = result.data.params;
+    }
 
     next();
   };

@@ -3,17 +3,7 @@ import app from "./app.controller.js";
 import connectionDB from "./DB/connectionDB.js";
 import { seedAdmin } from "./DB/seeds/admin.seed.js";
 
-const bootstrap = async () => {
-  try {
-    await connectionDB();
-    await seedAdmin();
-  } catch (error) {
-    console.error("Bootstrapping error:", error);
-  }
-};
-
-bootstrap();
-
+connectionDB();
 const PORT = process.env.PORT || 5000;
 if (process.env.NODE_ENV !== "production") {
   app.listen(PORT, () => {
