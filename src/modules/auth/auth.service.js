@@ -12,7 +12,7 @@ import jwt from "jsonwebtoken";
 import userModel from "../../DB/models/user.model.js";
 
 export const signUp = async (req, res, next) => {
-  const { name, email, password, rePassword, gender, phone } = req.body;
+  const { name, email, password, rePassword, gender, phone,role } = req.body;
   if (await db_service.findOne({ model: userModel, filter: { email } })) {
     throw new Error("User Already Exist", { cause: 409 });
   }
@@ -25,6 +25,7 @@ export const signUp = async (req, res, next) => {
         password: Hash({ plainText: password }),
         gender,
         phone: encrypt(phone),
+        role
       },
     });
     successResponse({ res, status: 201, data: user });

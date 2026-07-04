@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { GenderEnum } from "../../enum/user.enum.js";
+import { GenderEnum, RoleEnum } from "../../enum/user.enum.js";
 
 const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, {
   message: "Invalid ObjectId",
@@ -18,6 +18,7 @@ export const signUpSchema = z.object({
       password: passwordSchema,
       rePassword: z.string(),
       gender: z.enum(Object.values(GenderEnum)).optional(),
+      role: z.enum(Object.values(RoleEnum)).optional(),
       phone: z
         .string()
         .regex(/^01[0125]\d{8}$/, {

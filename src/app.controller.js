@@ -7,7 +7,6 @@ import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import authRouter from "./modules/auth/auth.controller.js";
 
-
 const app = express();
 
 const limiter = rateLimit({
@@ -18,7 +17,7 @@ const limiter = rateLimit({
 });
 
 app.use(cors(), helmet(), limiter, express.json());
-app.use("/src/DB/uploads",express.static("src/DB/uploads"));
+app.use("/src/DB/uploads", express.static("src/DB/uploads"));
 app.get("/", (req, res) => {
   res.status(200).json({ message: "Welcome In My Api" });
 });
@@ -29,7 +28,13 @@ app.use("{/*demo}", (req, res) => {
   throw new Error(`Url ${req.originalUrl} Not Found!`, { cause: 404 });
 });
 app.use((err, req, res, next) => {
-  res.status(err.cause || 500).json({ message: err.message, stack: err.stack });
+  const response = {
+    message: err.message,
+  };
+  if (err.errors) {
+    response.errors = err.errors;
+  }
+  res.status(err.cause || 500).json(response);
 });
 
 export default app;
