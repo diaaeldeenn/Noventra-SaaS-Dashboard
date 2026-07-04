@@ -1,6 +1,7 @@
+import { RoleEnum } from "../../common/enum/user.enum.js";
+import { Hash } from "../../common/utils/security/hash.security.js";
 import userModel from "../models/user.model.js";
-import { Hash } from "../../../common/utils/security/hash.security.js";
-import { RoleEnum } from "../../../common/enum/user.enum.js";
+
 
 export const seedAdmin = async () => {
   try {
