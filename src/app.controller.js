@@ -10,11 +10,6 @@ import authRouter from "./modules/auth/auth.controller.js";
 
 const app = express();
 
-app.use(async (req, res, next) => {
-  await connectionDB();
-  next();
-});
-
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   limit: 200, // Limit each IP to 200 requests per `window`
