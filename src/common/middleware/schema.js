@@ -1,9 +1,10 @@
 import * as z from "zod";
 
-export const schema = (schema) => {
+export const schema = (zodSchema) => {
   return (req, res, next) => {
-    const result = schema.safeParse({
+    const result = zodSchema.safeParse({
       body: req.body,
+      file: req.file,
       params: req.params,
       query: req.query,
     });
@@ -13,7 +14,6 @@ export const schema = (schema) => {
         field: err.path.join("."),
         message: err.message,
       }));
-
       return next(
         Object.assign(new Error("Validation Error"), {
           cause: 400,
@@ -25,9 +25,11 @@ export const schema = (schema) => {
     if (result.data.body) {
       req.body = result.data.body;
     }
-
     if (result.data.params) {
       req.params = result.data.params;
+    }
+    if (result.data.query) {
+      req.query = result.data.query;
     }
 
     next();
