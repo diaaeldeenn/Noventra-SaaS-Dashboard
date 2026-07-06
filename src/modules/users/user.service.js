@@ -1,6 +1,9 @@
 import { RoleEnum } from "../../common/enum/user.enum.js";
 import { successResponse } from "../../common/utils/response.success.js";
-import { decrypt } from "../../common/utils/security/encrypt.security.js";
+import {
+  decrypt,
+  encrypt,
+} from "../../common/utils/security/encrypt.security.js";
 import * as db_service from "../../DB/db.service.js";
 import userModel from "../../DB/models/user.model.js";
 
@@ -42,6 +45,63 @@ export const employeesStatus = async (req, res, next) => {
     employee.isActive = !employee.isActive;
 
     await employee.save();
+
+    return successResponse({
+      res,
+      data: employee,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSpecificEmployee = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const employee = await db_service.findById({
+      model: userModel,
+      id,
+      select: "-password",
+    });
+
+    if (!employee) {
+      throw new Error("Employee not found", {
+        cause: 404,
+      });
+    }
+
+    const empObj = employee.toObject();
+    if (empObj.phone) {
+      empObj.phone = decrypt(empObj.phone);
+    }
+
+    return successResponse({
+      res,
+      data: empObj,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateSpecificEmployee = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, email, phone, gender, role } = req.body;
+
+    const employee = await db_service.findOneAndUpdate({
+      model: userModel,
+      filter: { _id: id },
+      update: { name, email, phone: encrypt(phone), gender, role },
+      options: { select: "-password" },
+    });
+
+    if (!employee) {
+      throw new Error("Employee not found", {
+        cause: 404,
+      });
+    }
 
     return successResponse({
       res,

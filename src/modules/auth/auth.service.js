@@ -12,11 +12,11 @@ import jwt from "jsonwebtoken";
 import userModel from "../../DB/models/user.model.js";
 
 export const signUp = async (req, res, next) => {
-  const { name, email, password, rePassword, gender, phone,role } = req.body;
-  if (await db_service.findOne({ model: userModel, filter: { email } })) {
-    throw new Error("User Already Exist", { cause: 409 });
-  }
+  const { name, email, password, rePassword, gender, phone, role } = req.body;
   try {
+    if (await db_service.findOne({ model: userModel, filter: { email } })) {
+      throw new Error("User Already Exist", { cause: 409 });
+    }
     const user = await db_service.create({
       model: userModel,
       data: {
@@ -25,7 +25,7 @@ export const signUp = async (req, res, next) => {
         password: Hash({ plainText: password }),
         gender,
         phone: encrypt(phone),
-        role
+        role,
       },
     });
     successResponse({ res, status: 201, data: user });
@@ -46,6 +46,12 @@ export const login = async (req, res, next) => {
     }
     if (!CompareHash({ plainText: password, cipherText: user.password })) {
       throw new Error("Invalid Password", { cause: 400 });
+    }
+    if (!user.isActive) {
+      throw new Error(
+        "Your account is deactivated. Please contact the admin.",
+        { cause: 403 },
+      );
     }
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
     successResponse({

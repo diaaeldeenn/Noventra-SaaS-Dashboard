@@ -68,3 +68,21 @@ export const employeesStatusSchema = z.object({
     id: objectIdSchema,
   }),
 });
+
+export const updateEmployeeSchema = z.object({
+  params: z.object({
+    id: objectIdSchema,
+  }),
+  body: z.object({
+    name: z.string().trim().min(3).max(50),
+    email: z.string().trim().toLowerCase().email(),
+    gender: z.enum(Object.values(GenderEnum)).optional(),
+    role: z.enum(Object.values(RoleEnum)).optional(),
+    phone: z
+      .string()
+      .regex(/^01[0125]\d{8}$/, {
+        message: "Invalid phone number",
+      })
+      .optional(),
+  }),
+});
