@@ -24,6 +24,9 @@ const salesSchema = new Schema(
       default: paymentMethodEnum.cash,
     },
     soldBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    isCancelled: { type: Boolean, default: false },
+    cancelledBy: { type: Schema.Types.ObjectId, ref: "User" },
+    cancelledAt: { type: Date },
   },
   { timestamps: true },
 );

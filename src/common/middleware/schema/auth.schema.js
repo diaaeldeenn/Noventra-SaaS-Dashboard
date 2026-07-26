@@ -74,8 +74,8 @@ export const updateEmployeeSchema = z.object({
     id: objectIdSchema,
   }),
   body: z.object({
-    name: z.string().trim().min(3).max(50),
-    email: z.string().trim().toLowerCase().email(),
+    name: z.string().trim().min(3).max(50).optional(),
+    email: z.string().trim().toLowerCase().email().optional(),
     gender: z.enum(Object.values(GenderEnum)).optional(),
     role: z.enum(Object.values(RoleEnum)).optional(),
     phone: z

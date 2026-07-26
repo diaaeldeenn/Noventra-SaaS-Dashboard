@@ -41,7 +41,6 @@ productRouter.get(
   "/:productId",
   authentication,
   authorization([RoleEnum.admin, RoleEnum.manager, RoleEnum.employee]),
-  schema(employeesStatusSchema),
   PS.getSpeceficProduct,
 );
 

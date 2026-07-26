@@ -103,6 +103,7 @@ export const updateProductSchema = z.object({
       .string()
       .trim()
       .min(2, { message: "Category name is too short" })
+      .or(z.literal(""))
       .optional(),
   }),
   params: z.object({
