@@ -17,7 +17,7 @@ import { createNotificationFromAudit } from "../notification/notification.servic
 import { notificationEnum } from "../../common/enum/notification.enum.js";
 import { sendLowStockEmail } from "../../common/utils/email/email.service.js";
 
-const DASHBOARD_CACHE_KEY = "dashboard:stats";
+const DASHBOARD_CACHE_KEY = process.env.DASHBOARD_CACHE_KEY;
 
 export const createSale = async (req, res, next) => {
   const session = await mongoose.startSession();
@@ -79,7 +79,7 @@ export const createSale = async (req, res, next) => {
         );
       }
 
-      if (updatedProduct.stock <= 5) {
+      if (updatedProduct.stock <= updatedProduct.lowStockThreshold) {
         lowStockProducts.push(updatedProduct);
       }
 
@@ -184,63 +184,95 @@ export const createSale = async (req, res, next) => {
 };
 
 export const getAllSales = async (req, res, next) => {
-  const { page = 1, limit = 10, startDate, endDate, paymentMethod } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      startDate,
+      endDate,
+      paymentMethod,
+      isCancelled,
+      soldBy,
+    } = req.query;
 
-  const filter = { isCancelled: false };
+    const skip = (page - 1) * limit;
 
-  if (paymentMethod) {
-    filter.paymentMethod = paymentMethod;
-  }
+    const filter = {};
 
-  if (startDate || endDate) {
-    filter.createdAt = {};
+    let isCancelledFilter = false;
 
-    if (startDate) {
-      filter.createdAt.$gte = DateTime.fromISO(startDate)
-        .startOf("day")
-        .toJSDate();
+    if (isCancelled !== undefined) {
+      if (typeof isCancelled === "boolean") {
+        isCancelledFilter = isCancelled;
+      } else if (typeof isCancelled === "string") {
+        isCancelledFilter = isCancelled === "true";
+      }
     }
 
-    if (endDate) {
-      filter.createdAt.$lte = DateTime.fromISO(endDate).endOf("day").toJSDate();
+    filter.isCancelled = isCancelledFilter;
+
+    if (paymentMethod) {
+      filter.paymentMethod = paymentMethod;
     }
+
+    if (soldBy) {
+      filter.soldBy = soldBy;
+    }
+
+    if (startDate || endDate) {
+      filter.createdAt = {};
+
+      if (startDate) {
+        filter.createdAt.$gte = DateTime.fromISO(startDate)
+          .startOf("day")
+          .toJSDate();
+      }
+
+      if (endDate) {
+        filter.createdAt.$lte = DateTime.fromISO(endDate)
+          .endOf("day")
+          .toJSDate();
+      }
+    }
+
+    const [sales, totalDocs] = await Promise.all([
+      db_service.find({
+        model: salesModel,
+        filter,
+        select: "-__v",
+        options: {
+          skip,
+          limit,
+          sort: { createdAt: -1 },
+          populate: [
+            { path: "soldBy", select: "name email role" },
+            { path: "cancelledBy", select: "name email role" },
+            { path: "items.productId", select: "name sellingPrice category" },
+          ],
+        },
+      }),
+      salesModel.countDocuments(filter),
+    ]);
+
+    const totalPages = Math.ceil(totalDocs / limit);
+
+    return successResponse({
+      res,
+      status: 200,
+      message: "Sales fetched successfully",
+      data: {
+        sales,
+        pagination: {
+          totalDocs,
+          totalPages,
+          currentPage: page,
+          limit,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
   }
-
-  const [sales, totalDocs] = await Promise.all([
-    db_service.find({
-      model: salesModel,
-      filter,
-      select: "-__v",
-      options: {
-        skip,
-        limit: Number(limit),
-        sort: { createdAt: -1 },
-        populate: [
-          { path: "soldBy", select: "name email role" },
-          { path: "items.productId", select: "name sellingPrice category" },
-        ],
-      },
-    }),
-    salesModel.countDocuments(filter),
-  ]);
-
-  const totalPages = Math.ceil(totalDocs / Number(limit));
-
-  return successResponse({
-    res,
-    status: 200,
-    message: "Sales fetched successfully",
-    data: {
-      sales,
-      pagination: {
-        totalDocs,
-        totalPages,
-        currentPage: Number(page),
-        limit: Number(limit),
-      },
-    },
-  });
 };
 
 export const cancelSale = async (req, res, next) => {
