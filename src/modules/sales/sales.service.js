@@ -1,15 +1,23 @@
 import mongoose from "mongoose";
+import { DateTime } from "luxon";
 import * as db_service from "../../DB/db.service.js";
 import productModel from "../../DB/models/product.model.js";
 import salesModel from "../../DB/models/sales.model.js";
 import auditLogModel from "../../DB/models/audit.model.js";
 import { TargetEnum } from "../../common/enum/target.enum.js";
+import { formatEnum } from "../../common/enum/sales.enum.js";
 import { successResponse } from "../../common/utils/response.success.js";
+import * as redisService from "../../DB/redis/redis.service.js";
 import {
-  generateExcelReport,
-  generatePdfReport,
-  generateWordReport,
+  exportSalesToExcel,
+  exportSalesToPDF,
+  exportSalesToWord,
 } from "./sales.export.helper.js";
+import { createNotificationFromAudit } from "../notification/notification.service.js";
+import { notificationEnum } from "../../common/enum/notification.enum.js";
+import { sendLowStockEmail } from "../../common/utils/email/email.service.js";
+
+const DASHBOARD_CACHE_KEY = "dashboard:stats";
 
 export const createSale = async (req, res, next) => {
   const session = await mongoose.startSession();
@@ -18,92 +26,149 @@ export const createSale = async (req, res, next) => {
   try {
     const { items, paymentMethod } = req.body;
 
+    const combinedItemsMap = new Map();
+    for (const item of items) {
+      const idStr = item.product.toString();
+      combinedItemsMap.set(
+        idStr,
+        (combinedItemsMap.get(idStr) || 0) + item.quantity,
+      );
+    }
+
+    const productIds = Array.from(combinedItemsMap.keys());
+
+    const products = await db_service.find({
+      model: productModel,
+      filter: { _id: { $in: productIds }, isAvailable: true },
+      options: { session },
+    });
+
+    if (products.length !== productIds.length) {
+      throw new Error(
+        "One or more products were not found or are unavailable",
+        { cause: 404 },
+      );
+    }
+
     let totalAmount = 0;
     let totalProfit = 0;
     const saleItems = [];
+    const lowStockProducts = [];
 
-    for (const item of items) {
-      const product = await db_service.findOne({
-        model: productModel,
-        filter: { _id: item.product, isAvailable: true },
-        options: { session },
-      });
+    for (const product of products) {
+      const quantity = combinedItemsMap.get(product._id.toString());
 
-      if (!product) {
+      if (product.stock < quantity) {
         throw new Error(
-          `Product with ID ${item.product} not found or unavailable`,
-          { cause: 404 },
-        );
-      }
-
-      if (product.stock < item.quantity) {
-        throw new Error(
-          `Insufficient stock for product '${product.name}'. Available: ${product.stock}, requested: ${item.quantity}`,
+          `Insufficient stock for '${product.name}'. Available: ${product.stock}, requested: ${quantity}`,
           { cause: 400 },
         );
       }
 
       const updatedProduct = await db_service.findOneAndUpdate({
         model: productModel,
-        filter: {
-          _id: product._id,
-          stock: { $gte: item.quantity },
-        },
-        update: { $inc: { stock: -item.quantity } },
+        filter: { _id: product._id, stock: { $gte: quantity } },
+        update: { $inc: { stock: -quantity } },
         options: { session, new: true },
       });
 
       if (!updatedProduct) {
         throw new Error(
-          `Stock for product '${product.name}' was updated by another transaction. Please try again.`,
+          `Stock update failed for '${product.name}' due to dynamic changes. Please retry.`,
           { cause: 409 },
         );
       }
 
-      const itemTotalPrice = product.sellingPrice * item.quantity;
+      if (updatedProduct.stock <= 5) {
+        lowStockProducts.push(updatedProduct);
+      }
+
+      const itemTotalPrice = product.sellingPrice * quantity;
       const itemProfit =
-        (product.sellingPrice - product.purchasePrice) * item.quantity;
+        (product.sellingPrice - product.purchasePrice) * quantity;
 
       totalAmount += itemTotalPrice;
       totalProfit += itemProfit;
 
       saleItems.push({
         productId: product._id,
-        quantity: item.quantity,
+        quantity,
         purchasePriceAtSale: product.purchasePrice,
         sellingPriceAtSale: product.sellingPrice,
       });
     }
 
-    const invoiceNumber = `INV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const invoiceNumber = `INV-${DateTime.now().toFormat("yyyyMMdd-HHmmss")}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const sale = await db_service.create({
-      model: salesModel,
-      data: {
-        invoiceNumber,
-        soldBy: req.user._id,
-        items: saleItems,
-        totalAmount,
-        totalProfit,
-        paymentMethod,
-      },
-      options: { session },
+    const [sale] = await salesModel.create(
+      [
+        {
+          invoiceNumber,
+          soldBy: req.user._id,
+          items: saleItems,
+          totalAmount,
+          totalProfit,
+          paymentMethod,
+        },
+      ],
+      { session },
+    );
+
+    await auditLogModel.create(
+      [
+        {
+          userId: req.user._id,
+          action: "CREATE_SALE",
+          targetId: sale._id,
+          targetModel: TargetEnum.Sale || "Sale",
+          details: `Created sale invoice: ${invoiceNumber} with total: ${totalAmount}`,
+        },
+      ],
+      { session },
+    );
+
+    await createNotificationFromAudit({
+      action: "CREATE_SALE",
+      details: `A new invoice number ${invoiceNumber} has been created with a total value of ${totalAmount}`,
+      targetId: sale._id,
+      actorId: req.user._id,
+      type: notificationEnum.SALE_CREATED,
+      session,
     });
 
-    await db_service.create({
-      model: auditLogModel,
-      data: {
-        userId: req.user._id,
-        action: "CREATE_SALE",
-        targetId: sale._id,
-        targetModel: TargetEnum.Sale || "Sale",
-        details: `Created sale invoice: ${invoiceNumber} with total: ${totalAmount}`,
-      },
-      options: { session },
-    });
+    for (const prod of lowStockProducts) {
+      await createNotificationFromAudit({
+        action: "LOW_STOCK_ALERT",
+        details: `Warning: Product '${prod.name}' is low on stock (${prod.stock} remaining).`,
+        targetId: prod._id,
+        actorId: req.user._id,
+        type: notificationEnum.LOW_STOCK,
+        session,
+      });
+    }
 
     await session.commitTransaction();
     session.endSession();
+
+    if (lowStockProducts.length > 0) {
+      Promise.allSettled(
+        lowStockProducts.map((prod) =>
+          sendLowStockEmail({
+            adminEmail: process.env.ADMIN_EMAIL || req.user.email,
+            productName: prod.name,
+            currentStock: prod.stock,
+            productId: prod._id,
+          }),
+        ),
+      ).catch((err) => console.error("Low Stock Email Error:", err));
+    }
+
+    await Promise.all([
+      redisService.deleteKey(DASHBOARD_CACHE_KEY),
+      redisService.deleteKey("dashboard:chart:daily"),
+      redisService.deleteKey("dashboard:chart:monthly"),
+      redisService.deleteKey("dashboard:chart:yearly"),
+    ]);
 
     return successResponse({
       res,
@@ -118,6 +183,66 @@ export const createSale = async (req, res, next) => {
   }
 };
 
+export const getAllSales = async (req, res, next) => {
+  const { page = 1, limit = 10, startDate, endDate, paymentMethod } = req.query;
+  const skip = (Number(page) - 1) * Number(limit);
+
+  const filter = { isCancelled: false };
+
+  if (paymentMethod) {
+    filter.paymentMethod = paymentMethod;
+  }
+
+  if (startDate || endDate) {
+    filter.createdAt = {};
+
+    if (startDate) {
+      filter.createdAt.$gte = DateTime.fromISO(startDate)
+        .startOf("day")
+        .toJSDate();
+    }
+
+    if (endDate) {
+      filter.createdAt.$lte = DateTime.fromISO(endDate).endOf("day").toJSDate();
+    }
+  }
+
+  const [sales, totalDocs] = await Promise.all([
+    db_service.find({
+      model: salesModel,
+      filter,
+      select: "-__v",
+      options: {
+        skip,
+        limit: Number(limit),
+        sort: { createdAt: -1 },
+        populate: [
+          { path: "soldBy", select: "name email role" },
+          { path: "items.productId", select: "name sellingPrice category" },
+        ],
+      },
+    }),
+    salesModel.countDocuments(filter),
+  ]);
+
+  const totalPages = Math.ceil(totalDocs / Number(limit));
+
+  return successResponse({
+    res,
+    status: 200,
+    message: "Sales fetched successfully",
+    data: {
+      sales,
+      pagination: {
+        totalDocs,
+        totalPages,
+        currentPage: Number(page),
+        limit: Number(limit),
+      },
+    },
+  });
+};
+
 export const cancelSale = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -127,30 +252,30 @@ export const cancelSale = async (req, res, next) => {
 
     const sale = await db_service.findOne({
       model: salesModel,
-      filter: { _id: id },
+      filter: { _id: id, isCancelled: false },
       options: { session },
     });
 
     if (!sale) {
-      throw new Error("Sale invoice not found", { cause: 404 });
+      throw new Error("Sale invoice not found or already cancelled", {
+        cause: 404,
+      });
     }
 
-    if (sale.isCancelled) {
-      throw new Error("This sale invoice is already cancelled", { cause: 400 });
-    }
-
-    for (const item of sale.items) {
-      await db_service.findOneAndUpdate({
-        model: productModel,
+    const bulkStockOps = sale.items.map((item) => ({
+      updateOne: {
         filter: { _id: item.productId },
         update: { $inc: { stock: item.quantity } },
-        options: { session, new: true },
-      });
+      },
+    }));
+
+    if (bulkStockOps.length > 0) {
+      await productModel.bulkWrite(bulkStockOps, { session });
     }
 
     sale.isCancelled = true;
     sale.cancelledBy = req.user._id;
-    sale.cancelledAt = new Date();
+    sale.cancelledAt = DateTime.now().toJSDate();
     await sale.save({ session });
 
     await db_service.create({
@@ -160,13 +285,29 @@ export const cancelSale = async (req, res, next) => {
         action: "CANCEL_SALE",
         targetId: sale._id,
         targetModel: TargetEnum.Sale || "Sale",
-        details: `Cancelled sale invoice: ${sale.invoiceNumber}. Restored items to inventory.`,
+        details: `Cancelled invoice: ${sale.invoiceNumber} and restored product stock`,
       },
       options: { session },
     });
 
+    await createNotificationFromAudit({
+      action: "CANCEL_SALE",
+      details: `The invoice number ${sale.invoiceNumber} has been canceled and the products have been returned to inventory.`,
+      targetId: sale._id,
+      actorId: req.user._id,
+      type: notificationEnum.SALE_CANCELLED,
+      session,
+    });
+
     await session.commitTransaction();
     session.endSession();
+
+    await Promise.all([
+      redisService.deleteKey(DASHBOARD_CACHE_KEY),
+      redisService.deleteKey("dashboard:chart:daily"),
+      redisService.deleteKey("dashboard:chart:monthly"),
+      redisService.deleteKey("dashboard:chart:yearly"),
+    ]);
 
     return successResponse({
       res,
@@ -181,161 +322,101 @@ export const cancelSale = async (req, res, next) => {
   }
 };
 
-export const getAllSales = async (req, res, next) => {
-  try {
-    const {
-      page,
-      limit,
-      search,
-      soldBy,
-      isCancelled,
-      startDate,
-      endDate,
-      sort,
-    } = req.query;
+export const exportSales = async (req, res, next) => {
+  const { format = formatEnum.excel, startDate, endDate } = req.query;
 
-    const filter = {};
+  const filter = { isCancelled: false };
 
-    if (search) {
-      filter.invoiceNumber = { $regex: search, $options: "i" };
+  if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate) {
+      filter.createdAt.$gte = DateTime.fromISO(startDate)
+        .startOf("day")
+        .toJSDate();
     }
-
-    if (soldBy) {
-      filter.soldBy = soldBy;
+    if (endDate) {
+      filter.createdAt.$lte = DateTime.fromISO(endDate).endOf("day").toJSDate();
     }
-
-    if (typeof isCancelled === "boolean") {
-      filter.isCancelled = isCancelled;
-    }
-
-    if (startDate || endDate) {
-      filter.createdAt = {};
-      if (startDate) {
-        filter.createdAt.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        filter.createdAt.$lte = end;
-      }
-    }
-
-    const skip = (page - 1) * limit;
-
-    const sales = await db_service.find({
-      model: salesModel,
-      filter,
-      options: {
-        skip,
-        limit,
-        sort,
-        populate: [
-          { path: "soldBy", select: "name email role" },
-          { path: "items.productId", select: "name sku image" },
-          { path: "cancelledBy", select: "name email" },
-        ],
-      },
-    });
-
-    const totalDocs = await salesModel.countDocuments(filter);
-    const totalPages = Math.ceil(totalDocs / limit);
-
-    return successResponse({
-      res,
-      status: 200,
-      message: "Sales retrieved successfully",
-      data: {
-        sales,
-        pagination: {
-          totalDocs,
-          totalPages,
-          currentPage: page,
-          limit,
-          hasNextPage: page < totalPages,
-          hasPrevPage: page > 1,
-        },
-      },
-    });
-  } catch (error) {
-    next(error);
   }
+
+  const sales = await db_service.find({
+    model: salesModel,
+    filter,
+    options: {
+      limit: 5000,
+      sort: { createdAt: -1 },
+      populate: [
+        { path: "soldBy", select: "name email" },
+        { path: "items.productId", select: "name" },
+      ],
+    },
+  });
+
+  if (!sales || sales.length === 0) {
+    throw new Error("No sales data available for export", { cause: 404 });
+  }
+
+  const exportDateStr = DateTime.now().toFormat("yyyy-MM-dd_HH-mm");
+
+  if (format === formatEnum.pdf) {
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=sales_report_${exportDateStr}.pdf`,
+    );
+    return exportSalesToPDF(sales, res);
+  }
+
+  if (format === formatEnum.word) {
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=sales_report_${exportDateStr}.docx`,
+    );
+    return exportSalesToWord(sales, res);
+  }
+
+  if (format === formatEnum.excel) {
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=sales_report_${exportDateStr}.xlsx`,
+    );
+    return exportSalesToExcel(sales, res);
+  }
+
+  throw new Error(`Unsupported export format: ${format}`, { cause: 400 });
 };
 
 export const getSaleById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+  const { id } = req.params;
 
-    const sale = await db_service.findOne({
-      model: salesModel,
-      filter: { _id: id },
-      options: {
-        populate: [
-          { path: "soldBy", select: "name email role" },
-          { path: "items.productId", select: "name sku image category" },
-          { path: "cancelledBy", select: "name email" },
-        ],
-      },
-    });
+  const sale = await db_service.findOne({
+    model: salesModel,
+    filter: { _id: id },
+    options: {
+      populate: [
+        { path: "soldBy", select: "name email role" },
+        { path: "cancelledBy", select: "name email role" },
+        { path: "items.productId", select: "name category sellingPrice" },
+      ],
+    },
+  });
 
-    if (!sale) {
-      throw new Error("Sale invoice not found", { cause: 404 });
-    }
-
-    return successResponse({
-      res,
-      status: 200,
-      message: "Sale invoice retrieved successfully",
-      data: sale,
-    });
-  } catch (error) {
-    next(error);
+  if (!sale) {
+    throw new Error("Sale invoice not found", { cause: 404 });
   }
-};
 
-export const exportSales = async (req, res, next) => {
-  try {
-    const { format, startDate, endDate, soldBy } = req.query;
-
-    const filter = {};
-
-    if (soldBy) {
-      filter.soldBy = soldBy;
-    }
-
-    if (startDate || endDate) {
-      filter.createdAt = {};
-      if (startDate) {
-        filter.createdAt.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        filter.createdAt.$lte = end;
-      }
-    }
-
-    const sales = await db_service.find({
-      model: salesModel,
-      filter,
-      options: {
-        sort: { createdAt: -1 },
-        populate: [
-          { path: "soldBy", select: "name email" },
-          { path: "items.productId", select: "name sku" },
-        ],
-      },
-    });
-
-    switch (format) {
-      case "pdf":
-        return await generatePdfReport(sales, res);
-      case "word":
-        return await generateWordReport(sales, res);
-      case "excel":
-      default:
-        return await generateExcelReport(sales, res);
-    }
-  } catch (error) {
-    next(error);
-  }
+  return successResponse({
+    res,
+    status: 200,
+    message: "Sale invoice fetched successfully",
+    data: { sale },
+  });
 };

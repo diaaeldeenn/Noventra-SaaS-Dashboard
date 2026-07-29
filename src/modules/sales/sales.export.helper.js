@@ -5,160 +5,144 @@ import {
   Packer,
   Paragraph,
   Table,
-  TableRow,
   TableCell,
-  WidthType,
+  TableRow,
   TextRun,
-  HeadingLevel,
+  WidthType,
 } from "docx";
+import { DateTime } from "luxon";
 
-//* ================= 1. EXCEL GENERATOR =================
-export const generateExcelReport = async (sales, res) => {
+//* 1. Excel Export
+export const exportSalesToExcel = async (sales, res) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Sales Report");
 
   worksheet.columns = [
-    { header: "Invoice Number", key: "invoiceNumber", width: 22 },
+    { header: "Invoice Number", key: "invoiceNumber", width: 25 },
     { header: "Date & Time", key: "createdAt", width: 22 },
-    { header: "Seller Name", key: "sellerName", width: 20 },
-    { header: "Total Items", key: "totalItems", width: 12 },
+    { header: "Sold By", key: "soldBy", width: 20 },
+    { header: "Items Count", key: "itemsCount", width: 12 },
     { header: "Total Amount ($)", key: "totalAmount", width: 18 },
     { header: "Total Profit ($)", key: "totalProfit", width: 18 },
     { header: "Payment Method", key: "paymentMethod", width: 15 },
-    { header: "Status", key: "status", width: 15 },
   ];
 
-  worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFF" } };
-  worksheet.getRow(1).fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "1F2937" },
-  };
-
   sales.forEach((sale) => {
-    const totalItemsCount = sale.items.reduce(
-      (acc, item) => acc + item.quantity,
-      0,
-    );
     worksheet.addRow({
       invoiceNumber: sale.invoiceNumber,
-      createdAt: new Date(sale.createdAt).toLocaleString(),
-      sellerName: sale.soldBy?.name || "N/A",
-      totalItems: totalItemsCount,
+      createdAt: DateTime.fromJSDate(new Date(sale.createdAt)).toFormat(
+        "yyyy-MM-dd HH:mm:ss",
+      ),
+      soldBy: sale.soldBy?.name || "N/A",
+      itemsCount: sale.items ? sale.items.length : 0,
       totalAmount: sale.totalAmount,
       totalProfit: sale.totalProfit,
-      paymentMethod: sale.paymentMethod.toUpperCase(),
-      status: sale.isCancelled ? "CANCELLED" : "COMPLETED",
+      paymentMethod: sale.paymentMethod,
     });
   });
 
-  res.setHeader(
-    "Content-Type",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  );
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename=sales-report-${Date.now()}.xlsx`,
-  );
-
+  worksheet.getRow(1).font = { bold: true };
   await workbook.xlsx.write(res);
   res.status(200).end();
 };
 
-//^ ================= 2. PDF GENERATOR =================
-export const generatePdfReport = async (sales, res) => {
+//^ 2. PDF Export
+export const exportSalesToPDF = (sales, res) => {
   const doc = new PDFDocument({ margin: 30, size: "A4" });
-
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename=sales-report-${Date.now()}.pdf`,
-  );
-
   doc.pipe(res);
 
-  doc.fontSize(18).text("Noventra ERP - Sales Report", { align: "center" });
-  doc.moveDown();
+  const formattedGeneratedAt = DateTime.now().toFormat("yyyy-MM-dd HH:mm:ss");
+
+  doc.fontSize(18).text("Sales Summary Report", { align: "center" });
+  doc
+    .fontSize(10)
+    .text(`Generated On: ${formattedGeneratedAt}`, { align: "center" });
+  doc.moveDown(2);
 
   const tableRows = sales.map((sale) => [
     sale.invoiceNumber,
-    new Date(sale.createdAt).toLocaleDateString(),
+    DateTime.fromJSDate(new Date(sale.createdAt)).toFormat("yyyy-MM-dd HH:mm"),
     sale.soldBy?.name || "N/A",
-    `$${sale.totalAmount}`,
-    `$${sale.totalProfit}`,
-    sale.paymentMethod.toUpperCase(),
-    sale.isCancelled ? "CANCELLED" : "COMPLETED",
+    `$${sale.totalAmount.toFixed(2)}`,
+    `$${sale.totalProfit.toFixed(2)}`,
+    sale.paymentMethod,
   ]);
 
   const table = {
-    headers: [
-      "Invoice #",
-      "Date",
-      "Seller",
-      "Total",
-      "Profit",
-      "Payment",
-      "Status",
-    ],
+    headers: ["Invoice", "Date", "Sold By", "Total", "Profit", "Method"],
     rows: tableRows,
   };
 
-  await doc.table(table, {
-    prepareHeader: () => doc.font("Helvetica-Bold").fontSize(10),
-    prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
-      doc.font("Helvetica").fontSize(9);
-    },
+  doc.table(table, {
+    prepareHeader: () => doc.fontSize(10).font("Helvetica-Bold"),
+    prepareRow: () => doc.fontSize(9).font("Helvetica"),
   });
 
   doc.end();
 };
 
-//? ================= 3. WORD GENERATOR =================
-export const generateWordReport = async (sales, res) => {
-  const rows = [
+//? 3. Word Export
+export const exportSalesToWord = async (sales, res) => {
+  const tableRows = [
     new TableRow({
       children: [
         new TableCell({
-          children: [new Paragraph({ text: "Invoice #", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Invoice", bold: true })],
+            }),
+          ],
         }),
         new TableCell({
-          children: [new Paragraph({ text: "Date", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Date", bold: true })],
+            }),
+          ],
         }),
         new TableCell({
-          children: [new Paragraph({ text: "Seller", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Sold By", bold: true })],
+            }),
+          ],
         }),
         new TableCell({
-          children: [new Paragraph({ text: "Total ($)", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Total ($)", bold: true })],
+            }),
+          ],
         }),
         new TableCell({
-          children: [new Paragraph({ text: "Profit ($)", bold: true })],
-        }),
-        new TableCell({
-          children: [new Paragraph({ text: "Status", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Profit ($)", bold: true })],
+            }),
+          ],
         }),
       ],
     }),
   ];
 
   sales.forEach((sale) => {
-    rows.push(
+    const formattedDate = DateTime.fromJSDate(
+      new Date(sale.createdAt),
+    ).toFormat("yyyy-MM-dd HH:mm");
+
+    tableRows.push(
       new TableRow({
         children: [
           new TableCell({ children: [new Paragraph(sale.invoiceNumber)] }),
-          new TableCell({
-            children: [
-              new Paragraph(new Date(sale.createdAt).toLocaleDateString()),
-            ],
-          }),
+          new TableCell({ children: [new Paragraph(formattedDate)] }),
           new TableCell({
             children: [new Paragraph(sale.soldBy?.name || "N/A")],
           }),
-          new TableCell({ children: [new Paragraph(`$${sale.totalAmount}`)] }),
-          new TableCell({ children: [new Paragraph(`$${sale.totalProfit}`)] }),
           new TableCell({
-            children: [
-              new Paragraph(sale.isCancelled ? "CANCELLED" : "COMPLETED"),
-            ],
+            children: [new Paragraph(sale.totalAmount.toString())],
+          }),
+          new TableCell({
+            children: [new Paragraph(sale.totalProfit.toString())],
           }),
         ],
       }),
@@ -170,16 +154,21 @@ export const generateWordReport = async (sales, res) => {
       {
         children: [
           new Paragraph({
-            text: "Noventra ERP - Sales Report",
-            heading: HeadingLevel.HEADING_1,
+            children: [
+              new TextRun({
+                text: "Sales Report",
+                bold: true,
+                size: 32,
+              }),
+            ],
           }),
           new Paragraph({
-            text: `Generated on: ${new Date().toLocaleString()}`,
+            text: `Generated at: ${DateTime.now().toFormat("yyyy-MM-dd HH:mm:ss")}`,
           }),
-          new Paragraph({ text: " " }),
+          new Paragraph({ text: "" }),
           new Table({
+            rows: tableRows,
             width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: rows,
           }),
         ],
       },
@@ -187,15 +176,5 @@ export const generateWordReport = async (sales, res) => {
   });
 
   const buffer = await Packer.toBuffer(doc);
-
-  res.setHeader(
-    "Content-Type",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  );
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename=sales-report-${Date.now()}.docx`,
-  );
-
   res.status(200).send(buffer);
 };

@@ -1,0 +1,7 @@
+export const notificationEnum = {
+  LOW_STOCK: "LOW_STOCK",
+  SALE_CREATED: "SALE_CREATED",
+  SALE_CANCELLED: "SALE_CANCELLED",
+  AUDIT_ALERT: "AUDIT_ALERT",
+  SYSTEM: "SYSTEM",
+};

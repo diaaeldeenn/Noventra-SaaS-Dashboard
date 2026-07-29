@@ -8,6 +8,10 @@ import helmet from "helmet";
 import authRouter from "./modules/auth/auth.controller.js";
 import productRouter from "./modules/products/product.controller.js";
 import salesRouter from "./modules/sales/sales.controller.js";
+import dashboardRouter from "./modules/dashboard/dashboard.controller.js";
+import auditRouter from "./modules/audit/audit.controller.js";
+import { initCronJobs } from "./common/utils/cron.service.js";
+import notificationController from "./modules/notification/notification.controller.js";
 
 const app = express();
 
@@ -24,10 +28,14 @@ app.get("/", (req, res) => {
   res.status(200).json({ message: "Welcome In My Api" });
 });
 redisConnection();
+initCronJobs();
 app.use("/auth", authRouter);
 app.use("/users", userRouter);
 app.use("/products", productRouter);
 app.use("/sales", salesRouter);
+app.use("/audit-logs", auditRouter);
+app.use("/dashboard", dashboardRouter);
+app.use("/notification", notificationController);
 app.use("{/*demo}", (req, res) => {
   throw new Error(`Url ${req.originalUrl} Not Found!`, { cause: 404 });
 });
