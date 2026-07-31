@@ -436,12 +436,10 @@ export const printSingleSale = async (req, res, next) => {
   const sale = await db_service.findOne({
     model: salesModel,
     filter: { _id: id },
-    options: {
-      populate: [
-        { path: "soldBy", select: "name email" },
-        { path: "items.productId", select: "name" },
-      ],
-    },
+    populate: [
+      { path: "soldBy", select: "name email" },
+      { path: "items.productId", select: "name" },
+    ],
   });
 
   if (!sale) {
@@ -490,13 +488,11 @@ export const getSaleById = async (req, res, next) => {
   const sale = await db_service.findOne({
     model: salesModel,
     filter: { _id: id },
-    options: {
-      populate: [
-        { path: "soldBy", select: "name email role" },
-        { path: "cancelledBy", select: "name email role" },
-        { path: "items.productId", select: "name category sellingPrice" },
-      ],
-    },
+    populate: [
+      { path: "soldBy", select: "name email role" },
+      { path: "cancelledBy", select: "name email role" },
+      { path: "items.productId", select: "name category sellingPrice" },
+    ],
   });
 
   if (!sale) {
