@@ -64,6 +64,7 @@ A full-stack SaaS inventory and sales management dashboard built with React and 
 - Cancel a sale and automatically restore stock via `bulkWrite` inside a transaction
 - Filter sales by date range, payment method, employee, and cancellation status
 - Full invoice detail view with populated product and employee data
+- Export single sale invoice in **Excel**, **PDF**, or **Word** format
 
 ### Audit Logs
 - Every critical action is recorded automatically: product creation, updates, stock changes, sales, cancellations
@@ -86,6 +87,7 @@ A full-stack SaaS inventory and sales management dashboard built with React and 
 
 ### Data Export
 - Sales and audit logs exportable in three formats: **Excel (.xlsx)**, **PDF (.pdf)**, **Word (.docx)**
+- Single sale invoice printable in all three formats
 - Date range filtering on all exports
 - Up to 5,000 records per export
 
@@ -98,7 +100,7 @@ A full-stack SaaS inventory and sales management dashboard built with React and 
 | Auth | 5 | public / all roles |
 | Users | 4 | admin, manager |
 | Products | 7 | admin, manager, employee |
-| Sales | 5 | admin, manager, employee |
+| Sales | 6 | admin, manager, employee |
 | Audit Logs | 2 | admin, manager |
 | Dashboard | 2 | admin, manager |
 | Notifications | 3 | all roles |
@@ -121,6 +123,7 @@ Full API documentation available as a Postman collection in the repository.
 ## Architecture Highlights
 
 - **Service layer pattern** - controllers stay clean, all DB logic lives in `db.service.js`
+- **Zod schema middleware** - a single `schema()` middleware validates body, params, query, and file in one pass and returns structured field-level errors on failure
 - **MongoDB transactions** on all multi-document writes (sales creation, cancellation)
 - **Redis cache invalidation** tied to business events, not time-based guessing
 - **Audit log** created automatically inside every critical transaction
