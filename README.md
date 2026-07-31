@@ -13,7 +13,7 @@ A full-stack SaaS inventory and sales management dashboard built with React and 
 
 ## API Documentation
 
-[View Full Postman Documentation](https://documenter.getpostman.com/view/49715513/2sBY4SMyzX)
+[View Full Postman Documentation](https://documenter.getpostman.com/view/49715513/2sBY4TpJ1x)
 
 > Base URL: `https://noventra-backend-dashboard.vercel.app`
 
