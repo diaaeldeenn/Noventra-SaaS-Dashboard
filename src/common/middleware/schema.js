@@ -29,7 +29,7 @@ export const schema = (zodSchema) => {
       req.params = result.data.params;
     }
     if (result.data.query) {
-      req.query = result.data.query;
+      Object.assign(req.query, result.data.query);
     }
 
     next();

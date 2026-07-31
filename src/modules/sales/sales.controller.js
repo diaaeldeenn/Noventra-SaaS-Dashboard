@@ -38,6 +38,14 @@ salesRouter.get(
 );
 
 salesRouter.get(
+  "/:id/print",
+  authentication,
+  authorization([RoleEnum.admin, RoleEnum.manager, RoleEnum.employee]),
+  schema(getSaleByIdSchema),
+  SS.printSingleSale,
+);
+
+salesRouter.get(
   "/",
   authentication,
   authorization([RoleEnum.admin, RoleEnum.manager, RoleEnum.employee]),

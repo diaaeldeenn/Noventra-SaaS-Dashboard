@@ -12,6 +12,9 @@ import {
   exportSalesToExcel,
   exportSalesToPDF,
   exportSalesToWord,
+  exportSingleSaleToExcel,
+  exportSingleSaleToPDF,
+  exportSingleSaleToWord,
 } from "./sales.export.helper.js";
 import { createNotificationFromAudit } from "../notification/notification.service.js";
 import { notificationEnum } from "../../common/enum/notification.enum.js";
@@ -421,6 +424,61 @@ export const exportSales = async (req, res, next) => {
       `attachment; filename=sales_report_${exportDateStr}.xlsx`,
     );
     return exportSalesToExcel(sales, res);
+  }
+
+  throw new Error(`Unsupported export format: ${format}`, { cause: 400 });
+};
+
+export const printSingleSale = async (req, res, next) => {
+  const { id } = req.params;
+  const { format = formatEnum.excel } = req.query;
+
+  const sale = await db_service.findOne({
+    model: salesModel,
+    filter: { _id: id },
+    options: {
+      populate: [
+        { path: "soldBy", select: "name email" },
+        { path: "items.productId", select: "name" },
+      ],
+    },
+  });
+
+  if (!sale) {
+    throw new Error("Sale invoice not found", { cause: 404 });
+  }
+
+  if (format === formatEnum.pdf) {
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename=invoice_${sale.invoiceNumber}.pdf`,
+    );
+    return exportSingleSaleToPDF(sale, res);
+  }
+
+  if (format === formatEnum.word) {
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=invoice_${sale.invoiceNumber}.docx`,
+    );
+    return exportSingleSaleToWord(sale, res);
+  }
+
+  if (format === formatEnum.excel) {
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=invoice_${sale.invoiceNumber}.xlsx`,
+    );
+    return exportSingleSaleToExcel(sale, res);
   }
 
   throw new Error(`Unsupported export format: ${format}`, { cause: 400 });

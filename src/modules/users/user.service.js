@@ -1,3 +1,4 @@
+import { TargetEnum } from "../../common/enum/target.enum.js";
 import { RoleEnum } from "../../common/enum/user.enum.js";
 import { successResponse } from "../../common/utils/response.success.js";
 import {
@@ -5,6 +6,7 @@ import {
   encrypt,
 } from "../../common/utils/security/encrypt.security.js";
 import * as db_service from "../../DB/db.service.js";
+import auditLogModel from "../../DB/models/audit.model.js";
 import userModel from "../../DB/models/user.model.js";
 
 export const getAllEmployees = async (req, res, next) => {
@@ -43,8 +45,18 @@ export const employeesStatus = async (req, res, next) => {
     }
 
     employee.isActive = !employee.isActive;
-
     await employee.save();
+
+    await db_service.create({
+      model: auditLogModel,
+      data: {
+        userId: req.user._id,
+        action: employee.isActive ? "ACTIVATE_EMPLOYEE" : "BLOCK_EMPLOYEE",
+        targetId: employee._id,
+        targetModel: TargetEnum.User,
+        details: `Changed employee (${employee.name}) status to: ${employee.isActive ? "Active" : "Blocked/Inactive"}`,
+      },
+    });
 
     return successResponse({
       res,
@@ -90,11 +102,9 @@ export const updateSpecificEmployee = async (req, res, next) => {
     const { id } = req.params;
     const { name, email, phone, gender, role } = req.body;
 
-    const employee = await db_service.findOneAndUpdate({
+    const employee = await db_service.findById({
       model: userModel,
-      filter: { _id: id },
-      update: { name, email, phone: encrypt(phone), gender, role },
-      options: { select: "-password" },
+      id,
     });
 
     if (!employee) {
@@ -103,9 +113,38 @@ export const updateSpecificEmployee = async (req, res, next) => {
       });
     }
 
+    const oldRole = employee.role;
+
+    if (name) employee.name = name;
+    if (email) employee.email = email;
+    if (phone) employee.phone = encrypt(phone);
+    if (gender) employee.gender = gender;
+    if (role) employee.role = role;
+
+    await employee.save();
+
+    let auditDetails = `Updated info for employee: ${employee.name}`;
+    if (role && oldRole !== role) {
+      auditDetails += ` (Role changed from '${oldRole}' to '${role}')`;
+    }
+
+    await db_service.create({
+      model: auditLogModel,
+      data: {
+        userId: req.user._id,
+        action: "UPDATE_EMPLOYEE",
+        targetId: employee._id,
+        targetModel: TargetEnum.User,
+        details: auditDetails,
+      },
+    });
+
+    const empObj = employee.toObject();
+    delete empObj.password;
+
     return successResponse({
       res,
-      data: employee,
+      data: empObj,
     });
   } catch (error) {
     next(error);

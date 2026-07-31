@@ -169,7 +169,7 @@ export const getSpeceficProduct = async (req, res, next) => {
     if (!product) {
       throw new Error("Product Not Found", { cause: 404 });
     }
-    successResponse({ res, status: 200, data: product });
+    return successResponse({ res, status: 200, data: product });
   } catch (error) {
     next(error);
   }
@@ -196,6 +196,9 @@ export const updateProduct = async (req, res, next) => {
     if (!currentProduct) {
       throw new Error("Product Not Found", { cause: 404 });
     }
+
+    const oldPurchasePrice = currentProduct.purchasePrice;
+    const oldSellingPrice = currentProduct.sellingPrice;
 
     const updateData = {
       name,
@@ -225,6 +228,22 @@ export const updateProduct = async (req, res, next) => {
       update: updateData,
     });
 
+    let auditDetails = `Updated product: ${updatedProduct.name}`;
+    const priceChanges = [];
+
+    if (purchasePrice !== undefined && purchasePrice !== oldPurchasePrice) {
+      priceChanges.push(
+        `Purchase price: ${oldPurchasePrice} -> ${purchasePrice}`,
+      );
+    }
+    if (sellingPrice !== undefined && sellingPrice !== oldSellingPrice) {
+      priceChanges.push(`Selling price: ${oldSellingPrice} -> ${sellingPrice}`);
+    }
+
+    if (priceChanges.length > 0) {
+      auditDetails += ` (${priceChanges.join(", ")})`;
+    }
+
     await db_service.create({
       model: auditLogModel,
       data: {
@@ -232,7 +251,7 @@ export const updateProduct = async (req, res, next) => {
         action: "UPDATE_PRODUCT",
         targetId: updatedProduct._id,
         targetModel: TargetEnum.Product,
-        details: `Updated product: ${updatedProduct.name}`,
+        details: auditDetails,
       },
     });
 
@@ -247,9 +266,14 @@ export const updateStock = async (req, res, next) => {
     const { productId } = req.params;
     const { quantity } = req.body;
 
+    const filter = { _id: productId };
+    if (quantity < 0) {
+      filter.stock = { $gte: Math.abs(quantity) };
+    }
+
     const product = await db_service.findOneAndUpdate({
       model: productModel,
-      filter: { _id: productId },
+      filter,
       update: {
         $inc: { stock: quantity },
         updatedBy: req.user._id,
