@@ -3,6 +3,7 @@ import userModel from "../../DB/models/user.model.js";
 import * as db_service from "../../DB/db.service.js";
 import { successResponse } from "../../common/utils/response.success.js";
 import { notificationEnum } from "../../common/enum/notification.enum.js";
+import { RoleEnum } from "../../common/enum/user.enum.js";
 
 export const createNotificationFromAudit = async ({
   action,
@@ -15,7 +16,7 @@ export const createNotificationFromAudit = async ({
   try {
     const receivers = await userModel.find(
       {
-        role: { $in: ["ADMIN", "MANAGER"] },
+        role: { $in: [RoleEnum.admin, RoleEnum.manager] },
         _id: { $ne: actorId },
       },
       "_id",
