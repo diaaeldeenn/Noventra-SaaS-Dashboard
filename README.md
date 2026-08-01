@@ -33,7 +33,7 @@ A full-stack SaaS inventory and sales management dashboard built with React and 
 - **ExcelJS / PDFKit / docx** - multi-format export engine
 
 ### Frontend
-> Repository: `<!-- FRONTEND REPO LINK -->`
+> [Repository](https://github.com/diaaeldeenn/Noventra-Dashboard-FrontEnd)
 
 - **React.js**
 - Full details and setup instructions are available in the frontend repository linked above.
