@@ -48,7 +48,9 @@ const fillMissingChartDates = (rawChartData, period) => {
   const now = DateTime.now().setZone(EGYPT_TIMEZONE);
   const dataMap = new Map(rawChartData.map((item) => [item.label, item]));
 
-  const totalSteps = config.count || now.day;
+  const totalSteps =
+    config.count || (period === dashboardEnum.monthly ? now.daysInMonth : now.day);
+
   const startPoint = config.count
     ? now.startOf(config.unit).minus({ [config.unit]: totalSteps - 1 })
     : now.startOf("month");
@@ -132,6 +134,7 @@ export const getDashboardStats = async (req, res, next) => {
       overallSales,
       todaySales,
       monthSales,
+      totalOrders,
     ] = await Promise.all([
       productModel.countDocuments({ isAvailable: true }),
 
@@ -162,6 +165,8 @@ export const getDashboardStats = async (req, res, next) => {
         { $match: { isCancelled: false, createdAt: { $gte: startOfMonth } } },
         { $group: { _id: null, totalAmount: { $sum: "$totalAmount" } } },
       ]),
+
+      salesModel.countDocuments({ isCancelled: false }),
     ]);
 
     const stats = {
@@ -169,6 +174,7 @@ export const getDashboardStats = async (req, res, next) => {
       totalProfit: overallSales[0]?.totalProfit || 0,
       todaySalesAmount: todaySales[0]?.totalAmount || 0,
       monthSalesAmount: monthSales[0]?.totalAmount || 0,
+      totalOrders,
       totalEmployees,
       totalProducts,
       lowStockProductsCount: lowStockProducts,
