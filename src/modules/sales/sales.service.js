@@ -7,7 +7,6 @@ import auditLogModel from "../../DB/models/audit.model.js";
 import { TargetEnum } from "../../common/enum/target.enum.js";
 import { formatEnum } from "../../common/enum/sales.enum.js";
 import { successResponse } from "../../common/utils/response.success.js";
-import * as redisService from "../../DB/redis/redis.service.js";
 import {
   exportSalesToExcel,
   exportSalesToPDF,
@@ -19,8 +18,7 @@ import {
 import { createNotificationFromAudit } from "../notification/notification.service.js";
 import { notificationEnum } from "../../common/enum/notification.enum.js";
 import { sendLowStockEmail } from "../../common/utils/email/email.service.js";
-
-const DASHBOARD_CACHE_KEY = process.env.DASHBOARD_CACHE_KEY;
+import { clearDashboardCache } from "../dashboard/dashboard.service.js";
 
 export const createSale = async (req, res, next) => {
   const session = await mongoose.startSession();
@@ -101,8 +99,7 @@ export const createSale = async (req, res, next) => {
       });
     }
 
-    const invoiceNumber = `INV-${DateTime.now().toFormat("yyyyMMdd-HHmmss")}-${Math.floor(1000 + Math.random() * 9000)}`;
-
+    const invoiceNumber = `INV-${DateTime.now().setZone("Africa/Cairo").toFormat("yyyyMMdd-HHmmss")}-${Math.floor(1000 + Math.random() * 9000)}`;
     const [sale] = await salesModel.create(
       [
         {
@@ -163,15 +160,15 @@ export const createSale = async (req, res, next) => {
             productId: prod._id,
           }),
         ),
-      ).catch((err) => console.error("Low Stock Email Error:", err));
+      ).then((results) => {
+        const failed = results.filter((result) => result.status === "rejected");
+        if (failed.length > 0) {
+          console.error("Low Stock Email Errors:", failed);
+        }
+      });
     }
 
-    await Promise.all([
-      redisService.deleteKey(DASHBOARD_CACHE_KEY),
-      redisService.deleteKey("dashboard:chart:daily"),
-      redisService.deleteKey("dashboard:chart:monthly"),
-      redisService.deleteKey("dashboard:chart:yearly"),
-    ]);
+    await clearDashboardCache();
 
     return successResponse({
       res,
@@ -226,13 +223,17 @@ export const getAllSales = async (req, res, next) => {
       filter.createdAt = {};
 
       if (startDate) {
-        filter.createdAt.$gte = DateTime.fromISO(startDate)
+        filter.createdAt.$gte = DateTime.fromISO(startDate, {
+          zone: "Africa/Cairo",
+        })
           .startOf("day")
           .toJSDate();
       }
 
       if (endDate) {
-        filter.createdAt.$lte = DateTime.fromISO(endDate)
+        filter.createdAt.$lte = DateTime.fromISO(endDate, {
+          zone: "Africa/Cairo",
+        })
           .endOf("day")
           .toJSDate();
       }
@@ -310,7 +311,7 @@ export const cancelSale = async (req, res, next) => {
 
     sale.isCancelled = true;
     sale.cancelledBy = req.user._id;
-    sale.cancelledAt = DateTime.now().toJSDate();
+    sale.cancelledAt = DateTime.now().setZone("Africa/Cairo").toJSDate();
     await sale.save({ session });
 
     await db_service.create({
@@ -337,12 +338,7 @@ export const cancelSale = async (req, res, next) => {
     await session.commitTransaction();
     session.endSession();
 
-    await Promise.all([
-      redisService.deleteKey(DASHBOARD_CACHE_KEY),
-      redisService.deleteKey("dashboard:chart:daily"),
-      redisService.deleteKey("dashboard:chart:monthly"),
-      redisService.deleteKey("dashboard:chart:yearly"),
-    ]);
+    await clearDashboardCache();
 
     return successResponse({
       res,
@@ -365,12 +361,18 @@ export const exportSales = async (req, res, next) => {
   if (startDate || endDate) {
     filter.createdAt = {};
     if (startDate) {
-      filter.createdAt.$gte = DateTime.fromISO(startDate)
+      filter.createdAt.$gte = DateTime.fromISO(startDate, {
+        zone: "Africa/Cairo",
+      })
         .startOf("day")
         .toJSDate();
     }
     if (endDate) {
-      filter.createdAt.$lte = DateTime.fromISO(endDate).endOf("day").toJSDate();
+      filter.createdAt.$lte = DateTime.fromISO(endDate, {
+        zone: "Africa/Cairo",
+      })
+        .endOf("day")
+        .toJSDate();
     }
   }
 
@@ -391,7 +393,9 @@ export const exportSales = async (req, res, next) => {
     throw new Error("No sales data available for export", { cause: 404 });
   }
 
-  const exportDateStr = DateTime.now().toFormat("yyyy-MM-dd_HH-mm");
+  const exportDateStr = DateTime.now()
+    .setZone("Africa/Cairo")
+    .toFormat("yyyy-MM-dd_HH-mm");
 
   if (format === formatEnum.pdf) {
     res.setHeader("Content-Type", "application/pdf");

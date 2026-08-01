@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { DateTime } from "luxon";
 import salesModel from "../../DB/models/sales.model.js";
 import { sendDailyReportEmail } from "../utils/email/email.service.js";
+import { clearDashboardCache } from "../../modules/dashboard/dashboard.service.js";
 
 export const runDailySalesReport = async () => {
   try {
@@ -13,10 +14,10 @@ export const runDailySalesReport = async () => {
       return;
     }
 
-    const today = DateTime.now();
-    const startOfDay = today.startOf("day").toJSDate();
-    const endOfDay = today.endOf("day").toJSDate();
-    const formattedDate = today.toFormat("yyyy-MM-dd");
+    const yesterday = DateTime.now().setZone("Africa/Cairo").minus({ days: 1 });
+    const startOfDay = yesterday.startOf("day").toJSDate();
+    const endOfDay = yesterday.endOf("day").toJSDate();
+    const formattedDate = yesterday.toFormat("yyyy-MM-dd");
 
     const salesStatsPromise = salesModel.aggregate([
       {
@@ -107,10 +108,17 @@ export const runDailySalesReport = async () => {
 };
 
 export const initCronJobs = () => {
-  cron.schedule("55 23 * * *", async () => {
-    console.log("[CRON] Executing scheduled daily sales report task...");
-    await runDailySalesReport();
-  });
+  cron.schedule(
+    "5 0 * * *",
+    async () => {
+      console.log("[CRON] Executing scheduled daily sales report task...");
+      await runDailySalesReport();
+      await clearDashboardCache();
+    },
+    {
+      timezone: "Africa/Cairo",
+    },
+  );
 
   console.log("⏱️ Cron jobs initialized successfully.");
 };
